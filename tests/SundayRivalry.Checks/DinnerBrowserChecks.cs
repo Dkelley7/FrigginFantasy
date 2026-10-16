@@ -41,6 +41,8 @@ static class DinnerBrowserChecks
                 await tab.Wait("document.querySelector('[name=email]') !== null");
                 await tab.Eval($"document.querySelector('[name=email]').value={JsonSerializer.Serialize(owner == 0 ? "one@example.com" : "two@example.com")};document.querySelector('[name=password]').value={JsonSerializer.Serialize(password)};document.querySelector('form').requestSubmit()");
                 await tab.Wait("document.querySelector('a.account-menu') !== null");
+                await tab.Navigate("New competition", "document.querySelector('input[placeholder=\"The Sunday showdown\"]') !== null");
+                await tab.Navigate("Overview", "document.querySelector('.hero-actions') !== null");
             }
             Check(true, "Two independent browser sessions sign in through actual forms");
             foreach (var format in new[] { "Snake", "Salary" })

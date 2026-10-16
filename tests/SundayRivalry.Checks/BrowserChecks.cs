@@ -148,6 +148,13 @@ sealed class Cdp : IDisposable
         var query = $"Array.from(document.querySelectorAll('button')).find(b => b.textContent.includes({literal}) && !b.disabled)";
         await Wait(query + " !== undefined"); await Eval(query + ".click()"); await Task.Delay(150);
     }
+    // Only use for idempotent navigation. Prerendered HTML may arrive before
+    // Blazor has attached handlers, especially on a clean or slower CI runner.
+    public async Task Navigate(string label, string arrived)
+    {
+        var literal = JsonSerializer.Serialize(label);
+        await Wait($"(()=>{{if ({arrived}) return true; const button=Array.from(document.querySelectorAll('button')).find(b=>b.textContent.includes({literal})&&!b.disabled);button?.click();return false;}})()");
+    }
     public async Task Screenshot(string path)
     {
         await Command("Page.bringToFront");
