@@ -1,0 +1,32 @@
+﻿@inject EspnProjections Espn
+@inject TimeProvider Clock
+<section class="panel settings-panel espn-projections">
+    <div class="section-heading"><h2>ESPN weekly projections</h2><span class="pill">ESPN</span></div>
+    <p>Connect a publicly viewable ESPN NFL league. We cache projected player stats and calculate standard, half PPR and full PPR using our scoring rules.</p>
+    <div class="form-row"><label>ESPN league ID<input type="number" min="1" @bind="leagueId" /></label><label>Season<input type="number" min="2020" max="2100" @bind="season" /></label><label>NFL week<input type="number" min="1" max="18" @bind="week" /></label></div>
+    <button class="button primary" disabled="@(busy || leagueId <= 0)" @onclick="Refresh">@(busy ? "Refreshing…" : "Connect / refresh ESPN")</button>
+    <p role="status">@State.Espn.Status</p>
+    @if (error.Length > 0) { <p role="alert">@error</p> }
+    @if (State.Espn.LastSuccess is { } fetched) { <p class="muted">Last fetched @fetched.ToUniversalTime().ToString("MMM d, HH:mm") UTC. Saved projections persist after restart.</p> }
+    <p class="muted">Refreshes at most once an hour while this selected week has upcoming games. Failed requests can retry after five minutes. No Tank01 requests are used. New competitions use the latest matching ESPN estimates. Estimates and salaries are fixed when a competition is created.</p>
+    <small>D/ST keeps local estimates because ESPN's projected points-allowed ranges differ from ours. Missing optional offensive categories contribute zero to the estimate. This unofficial integration may change; saved data remains available if ESPN is unreachable.</small>
+    @if (State.Espn.Issues.Count > 0) { <details class="projection-issues"><summary>Coverage and matching notes (@State.Espn.Issues.Count)</summary>@foreach (var issue in State.Espn.Issues.Take(50)) { <p>@issue</p> }</details> }
+</section>
+@code {
+    [Parameter, EditorRequired] public AppState State { get; set; } = new();
+    long leagueId; int season, week; bool busy; string error = "";
+    protected override void OnInitialized()
+    {
+        var next = State.Games.Where(g => g.Kickoff > Clock.GetUtcNow()).OrderBy(g => g.Kickoff).FirstOrDefault();
+        leagueId = State.Espn.LeagueId; season = State.Espn.Season > 0 ? State.Espn.Season : next?.Season ?? Clock.GetUtcNow().Year;
+        week = State.Espn.Week > 0 ? State.Espn.Week : next?.Week ?? 1;
+    }
+    async Task Refresh()
+    {
+        busy = true; error = "";
+        try { await Espn.Refresh(leagueId, season, week); }
+        catch (Exception ex) { error = ex.Message; }
+        finally { busy = false; }
+    }
+}
+

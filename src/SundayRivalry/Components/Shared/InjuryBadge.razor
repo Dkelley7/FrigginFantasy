@@ -1,0 +1,10 @@
+@if (Injury is { Designation.Length: > 0 } injury)
+{
+    <span class="injury-badge @Severity(injury.Designation)" tabindex="0" title="@($"{injury.Designation} · {injury.Source} · checked {injury.UpdatedAt:MMM d, HH:mm} UTC. Status may change before kickoff.")">@injury.Designation</span>
+}
+@code {
+    [Parameter, EditorRequired] public Player Player { get; set; } = new();
+    [Parameter, EditorRequired] public AppState State { get; set; } = new();
+    PlayerInjury? Injury => State.Injuries.FirstOrDefault(i => i.PlayerId == Player.Id);
+    static string Severity(string designation) => designation is "Out" or "IR" or "PUP" ? "injury-unavailable" : "injury-uncertain";
+}

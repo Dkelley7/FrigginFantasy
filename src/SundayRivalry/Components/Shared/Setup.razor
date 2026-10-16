@@ -1,0 +1,40 @@
+@inject TimeProvider Clock
+@inject GameService Store
+<div class="page-heading"><div><div class="eyebrow">A FRESH START</div><h1>Make this week yours.</h1><p>Pick the games. Set the rules. Bring your best lineup.</p></div></div>
+<div class="setup-grid">
+    <section class="panel setup-form">
+        <div class="section-heading"><h2>The game plan</h2><span class="step">01</span></div>
+        <label>Competition name<input @bind="title" maxlength="80" placeholder="The Sunday showdown" /></label>
+        <div class="form-row"><label>Season<select @bind="season" @bind:after="ResetGames">@foreach (var y in State.Games.Select(g => g.Season).Distinct().OrderDescending()) { <option value="@y">@y</option> }</select></label><label>NFL week<select @bind="week" @bind:after="ResetGames">@foreach (var w in State.Games.Where(g => g.Season == season).Select(g => g.Week).Distinct().Order()) { <option value="@w">Week @w</option> }</select></label></div>
+        <label>Draft format</label><div class="choice-grid"><button class="choice @(format == "Snake" ? "chosen" : "")" @onclick='() => format = "Snake"'><strong>↝ Snake draft</strong><span>Take turns. Make every pick count.</span></button><button class="choice @(format == "Salary" ? "chosen" : "")" @onclick='() => format = "Salary"'><strong>◈ Salary cap</strong><span>Build your team. Stay on budget.</span></button></div>
+        <div class="form-row"><label>Scoring<select @bind="ppr"><option value="1">Full PPR</option><option value="0.5">Half PPR</option><option value="0">Standard</option></select></label>@if (format == "Salary") { <label>Budget · fantasy credits<input type="number" min="50" max="1000" @bind="budget" /></label> }</div>
+        <div class="note"><strong>Your starting nine</strong><p>QB · RB · RB · WR · WR · TE · FLEX · K · D/ST</p><small>FLEX accepts RB, WR, or TE. No bench. @((format == "Snake") ? "Players are exclusive to one team." : "Build independently. The same player can be on both teams. Opponent picks stay private until kickoff.")</small></div>
+    </section>
+    <section class="panel slate-panel"><div class="section-heading"><h2>Choose your slate</h2><span class="pill">@selected.Count games</span></div><p class="muted">Only games that haven't kicked off can be included. Times shown in Eastern Time.</p>
+        @if (WeekGames.Count == 0) { <div class="empty"><span>◷</span><h3>No schedule yet</h3><p>Sync NFL data from the Data & settings tab, or try a practice draft from your dashboard.</p></div> }
+        @foreach (var day in WeekGames.GroupBy(g => g.Day))
+        {
+            var future = day.Where(g => g.Kickoff > Clock.GetUtcNow()).ToList();
+            <div class="slate-day"><button class="text-button" disabled="@(future.Count == 0)" @onclick="() => ToggleDay(future)">@day.Key <span>@future.Count upcoming</span></button></div>
+            @foreach (var g in day)
+            {
+                <label class="game-check @(g.Kickoff <= Clock.GetUtcNow() ? "past" : "")"><input type="checkbox" checked="@selected.Contains(g.Id)" disabled="@(g.Kickoff <= Clock.GetUtcNow())" @onchange="() => Toggle(g.Id)" /><span class="team-mark">@g.Away</span><strong>@g.Away <span class="muted">at</span> @g.Home</strong><span class="game-time">@Eastern(g.Kickoff).ToString("MMM d · h:mm tt")</span></label>
+            }
+        }
+        <div class="slate-footer"><p><strong>One slate. One lock.</strong><br /><small>Both rosters lock at the first included kickoff.</small></p><button class="button primary" disabled="@(selected.Count == 0 || busy)" @onclick="Create">@(busy ? "Creating…" : "Create competition →")</button></div>
+    </section>
+</div>
+@if (error != "") { <div role="alert" class="toast error">@error</div> }
+@code {
+    [Parameter, EditorRequired] public AppState State { get; set; } = new();
+    [Parameter] public EventCallback<string> Created { get; set; }
+    int season; int week; string format = "Snake"; double ppr = 1; int budget = 200; string title = ""; bool busy; string error = "";
+    HashSet<string> selected = [];
+    List<NflGame> WeekGames => State.Games.Where(g => g.Season == season && g.Week == week).OrderBy(g => g.Kickoff).ToList();
+    protected override void OnInitialized() { var next = State.Games.Where(g => g.Kickoff > Clock.GetUtcNow()).OrderBy(g => g.Kickoff).FirstOrDefault(); season = next?.Season ?? Clock.GetUtcNow().Year; week = next?.Week ?? 1; ResetGames(); }
+    void ResetGames() { selected = State.Games.Where(g => g.Season == season && g.Week == week && g.Day == "Sunday" && g.Kickoff > Clock.GetUtcNow()).Select(g => g.Id).ToHashSet(); }
+    void Toggle(string id) { if (!selected.Add(id)) selected.Remove(id); }
+    void ToggleDay(List<NflGame> games) { var all = games.All(g => selected.Contains(g.Id)); foreach (var g in games) { if (all) selected.Remove(g.Id); else selected.Add(g.Id); } }
+    static DateTime Eastern(DateTimeOffset x) => TimeZoneInfo.ConvertTime(x, TimeZoneInfo.FindSystemTimeZoneById("America/New_York")).DateTime;
+    async Task Create() { busy = true; error = ""; try { var id = await Store.Create(season, week, format, ppr, budget, title, selected.ToList()); await Created.InvokeAsync(id); } catch (Exception e) { error = e.Message; } finally { busy = false; } }
+}

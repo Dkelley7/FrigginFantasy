@@ -1,0 +1,22 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "name": "Sunday Rivalry",
+      "type": "coreclr",
+      "request": "launch",
+      "preLaunchTask": "build Sunday Rivalry",
+      "program": "${workspaceFolder}/src/SundayRivalry/bin/Debug/net10.0/SundayRivalry.dll",
+      "cwd": "${workspaceFolder}/src/SundayRivalry",
+      "console": "internalConsole",
+      "env": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "ASPNETCORE_URLS": "http://localhost:5180"
+      },
+      "serverReadyAction": {
+        "action": "openExternally",
+        "pattern": "\\bNow listening on:\\s+(https?://\\S+)"
+      }
+    }
+  ]
+}

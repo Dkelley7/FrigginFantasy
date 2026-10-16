@@ -1,0 +1,7 @@
+.tools
+.git
+artifacts
+tests
+**/bin
+**/obj
+**/App_Data

@@ -1,0 +1,30 @@
+# Live NFL data options
+
+Research checked October 16, 2026. Prices are USD, before any tax; verify the checkout plan before subscribing. Tank01 integration is implemented with an encrypted local key, 30-minute polling, persistent 900-request rolling-31-day and 100-request daily caps, and an in-app pause. No paid subscription was purchased by Codex. A real completed-game schedule and box score were validated using two counted requests; incomplete categories remain explicitly partial.
+
+Sunday Rivalry needs raw player/team observations, not someone else's fantasy-point total. The existing C# scoring remains authoritative. Coverage must include passing/rushing/receiving, receptions, lost fumbles, two-point conversions, kick distance buckets and extra points, plus D/ST sacks, takeaways, touchdowns, safeties, blocked kicks and points allowed. Missing fields must remain unavailable rather than silently becoming zero.
+
+| Provider | Free access | Paid access | Fit and limitations |
+| --- | --- | --- | --- |
+| [nflverse](https://nflreadr.nflverse.com/articles/nflverse_data_schedule.html) | Free bulk schedules, rosters and stats | Not applicable | Already integrated. Player/team stats follow post-game/nightly publication, not continuous live play. Keep for history and stat corrections. Schedules update more often, which does not imply player-stat freshness. |
+| [Tank01](https://www.tank01.com/) | Basic: 1,000 requests/month, hard cap; provider says no credit card needed | Pro $10/month: 1,000/day; Ultra $25/month: 15,000/day. Paid overage $0.01/request | Recommended first evaluation. Provider advertises real-time box scores and fantasy-relevant stats. Validate actual NFL responses for kicking distances and all D/ST/conversion categories before treating the feed as complete. |
+| [MySportsFeeds](https://www.mysportsfeeds.com/register) | Advertises a 100% discount for noncommercial current-season access, obtained by contacting them | Live access and update interval depend on subscription; current private-use live price not verified | Worth requesting a private-use discount. Do not assume free current-season access includes live updates. Its [FAQ](https://www.mysportsfeeds.com/faq/) distinguishes live from post-game access and subscription frequency limits. |
+| [BALLDONTLIE NFL](https://nfl.balldontlie.io/) | Teams, players and games; player/team stats are not in the free tier | ALL-STAR $9.99/month, 60 requests/min; GOAT $39.99/month, 600/min | Stats endpoint advertises real-time updates. Some relevant categories, including two-point conversion fields, are documented through GOAT fantasy weekly stats; that endpoint also describes sparse-field/completeness limitations. Do not promise complete scoring on the $9.99 plan without testing. |
+| [SportsDataIO](https://sportsdata.io/developers) | Trial uses scrambled data; Discovery Lab free tier uses last season | Discovery Lab Fantasy $99/month is next-day delayed; live NFL feed requires a separate commercial quote | [Live NFL feed](https://sportsdata.io/nfl-api) supports player/team stats and fantasy use, but the cheaper hobby feed is not live. A costly option for a two-person app. |
+
+## Suggested rollout
+
+1. Evaluate Tank01 Basic with completed-game samples and then a live game. Check every scoring category against the published box score, including uncommon events. Request the MySportsFeeds noncommercial discount in parallel if desired.
+2. Start with 10–15 minute polling of games involving rostered players only. For illustration, eight games × 3.5 hours × four polls/hour × four weekends = 448 box-score requests/month. Actual usage includes extra game days, retries, lookup requests and longer games; enforce a monthly budget and expose remaining allowance.
+3. If faster updates are desired, Tank01 Pro with roughly five-minute polling is a reasonable candidate: ten games × 3.5 hours × 12 polls/hour = 420 requests on a Sunday, before overhead. One-minute polling of that slate would need 2,100 box-score requests, above Pro's daily allowance; Ultra would be the relevant tier. These calculations assume one request per game per poll; verify the chosen endpoint's batching and quota rules first.
+4. Fetch once on the desktop server and broadcast updates to both phones through Blazor. Two clients must not double provider calls. Poll only active relevant games; slow down after games finish, back off on failures, and continue showing the last successful snapshot with its age.
+5. Store stable provider-to-local player/game mappings. Keep live snapshots and finalized historical imports separate so a delayed nflverse import cannot overwrite a newer in-game stat line. Reconcile corrections explicitly after games.
+6. Label scores provisional and surface missing stat categories. The game's final status does not prove that all scoring statistics have finished populating.
+
+## Pregame projections
+
+[FanDuel Research DFS](https://www.fanduel.com/research/nfl/fantasy/dfs-projections) and [PPR projections](https://www.fanduel.com/research/nfl/fantasy/ppr) advertise CSV downloads. Sunday Rivalry's Data & settings screen supports a manual CSV import with explicit column selection, week/scoring confirmation and match preview. No account credentials or automated FanDuel requests are used.
+
+Only exact player/team/position matches (or unique team/position for D/ST) are imported. Skipped rows are shown. Position-specific exports can be merged. New competitions use the matching season/week/scoring set; unmatched players retain labeled local estimates. Existing competition values stay frozen. Credit salaries remain locally calculated, rather than copied from FanDuel's salary scale.
+
+A real exported file is still needed to confirm the actual source columns and scoring compatibility. Synthetic fixtures validate importer behavior; they do not establish that every FanDuel export matches Sunday Rivalry's rules. PPR settings alone do not establish compatibility for kicker, D/ST, bonus or other scoring rules. Aggregate points cannot be accurately converted between formats without underlying projected stat categories.

@@ -1,0 +1,80 @@
+@inject TimeProvider Clock
+@inject GameService Store
+<section class="panel settings-panel projection-import">
+    <div class="section-heading"><h2>Pregame projections</h2><span class="pill">FANDUEL RESEARCH</span></div>
+    <p>Download a weekly projection CSV from <a href="https://www.fanduel.com/research/nfl/fantasy/dfs-projections" target="_blank" rel="noreferrer">FanDuel Research</a>, then import it here. No FanDuel sign-in is needed in this app.</p>
+    <p class="muted">Choose the export's actual scoring format. DFS and PPR exports can use different rules; a points total cannot be converted automatically. Import projections before creating your competition. Existing competition estimates and salaries stay frozen.</p>
+    <div class="form-row"><label>Season<input type="number" min="2020" max="2100" @bind="season" @bind:after="ResetConfirmation" /></label><label>NFL week<input type="number" min="1" max="18" @bind="week" @bind:after="ResetConfirmation" /></label><label>Export scoring<select @bind="ppr" @bind:after="ResetConfirmation"><option value="1">Full PPR</option><option value="0.5">Half PPR</option><option value="0">Standard</option></select></label></div>
+    <label>Projection CSV · up to 2 MB<InputFile OnChange="ReadFile" accept=".csv,text/csv" /></label>
+    @if (headers.Count > 0)
+    {
+        <p class="muted">@rows.Count rows loaded. Confirm which columns contain these values. Select projected fantasy points, not average points or salary.</p>
+        <div class="projection-columns">
+            @Column("Player name", nameColumn, v => nameColumn = v)
+            @Column("Team abbreviation", teamColumn, v => teamColumn = v)
+            @Column("Position", positionColumn, v => positionColumn = v)
+            @Column("Projected points", pointsColumn, v => pointsColumn = v)
+        </div>
+        <label class="projection-confirm"><input type="checkbox" @bind="confirmed" @bind:after="Invalidate" />I confirm this CSV is for @season, week @week, and @Rules.ScoringName(ppr), using scoring rules compatible with this competition.</label>
+        <button class="button secondary" disabled="@(!confirmed || saving)" @onclick="Preview">Preview player matches</button>
+    }
+    @if (preview is not null)
+    {
+        <div class="note"><strong>@preview.Matches.Count matched · @preview.Issues.Count skipped</strong><p>Matched players use FanDuel Research estimates in new competitions for this week and scoring format. Other players keep local estimates. Salaries still use Sunday Rivalry's credit system.</p></div>
+        <div class="table-scroll projection-preview"><table class="player-table"><thead><tr><th>PLAYER</th><th>TEAM / POS.</th><th>PROJECTED PTS</th></tr></thead><tbody>@foreach (var match in preview.Matches.Take(100)) { <tr><td>@match.Name</td><td>@match.Team · @match.Position</td><td>@match.Points.ToString("0.00")</td></tr> }</tbody></table></div>
+        @if (preview.Issues.Count > 0) { <details class="projection-issues"><summary>Review @preview.Issues.Count skipped rows</summary>@foreach (var issue in preview.Issues.Take(50)) { <p>@issue</p> }@if (preview.Issues.Count > 50) { <p>Showing the first 50 issues.</p> }</details> }
+        <button class="button primary" disabled="@(preview.Matches.Count == 0 || saving)" @onclick="Save">@(saving ? "Saving…" : $"Save {preview.Matches.Count} matched projections")</button>
+    }
+    @if (message.Length > 0) { <p role="status">@message</p> }
+    @if (error.Length > 0) { <p class="projection-error" role="alert">@error</p> }
+    @if (State.Projections.Count > 0)
+    {
+        <details class="projection-issues"><summary>Saved projection sets (@State.Projections.Count)</summary>@foreach (var set in State.Projections.OrderByDescending(p => p.ImportedAt).Take(12)) { <p>@set.Season · Week @set.Week · @Rules.ScoringName(set.Ppr) · @set.Players.Count players · Saved @set.ImportedAt.ToLocalTime().ToString("MMM d, h:mm tt")</p> }</details>
+    }
+</section>
+@code {
+    [Parameter, EditorRequired] public AppState State { get; set; } = new();
+    List<Dictionary<string, string>> rows = []; List<string> headers = [];
+    string nameColumn = "", teamColumn = "", positionColumn = "", pointsColumn = "", error = "", message = "";
+    int season, week; double ppr = 1; bool confirmed, saving;
+    ProjectionImport.Preview? preview;
+    protected override void OnInitialized()
+    {
+        var next = State.Games.Where(g => g.Kickoff > Clock.GetUtcNow()).OrderBy(g => g.Kickoff).FirstOrDefault();
+        season = next?.Season ?? Clock.GetUtcNow().Year; week = next?.Week ?? 1;
+    }
+    void Invalidate() { preview = null; error = ""; message = ""; }
+    void ResetConfirmation() { confirmed = false; Invalidate(); }
+    async Task ReadFile(InputFileChangeEventArgs args)
+    {
+        Invalidate(); confirmed = false; rows = []; headers = [];
+        try
+        {
+            using var reader = new StreamReader(args.File.OpenReadStream(2 * 1024 * 1024));
+            rows = DataSync.Csv(await reader.ReadToEndAsync());
+            if (rows.Count is < 1 or > 5000) throw new InvalidDataException("Choose a CSV with between 1 and 5,000 projection rows.");
+            headers = rows[0].Keys.ToList();
+            nameColumn = ProjectionImport.Guess(headers, "Player", "Name", "Player Name", "Nickname");
+            teamColumn = ProjectionImport.Guess(headers, "Team", "Tm");
+            positionColumn = ProjectionImport.Guess(headers, "Position", "Pos");
+            pointsColumn = ProjectionImport.Guess(headers, "Projection", "Projected Points", "FPTS", "FP", "FanDuel Points");
+        }
+        catch (Exception ex) { rows = []; headers = []; error = "Couldn't read the CSV. " + ex.Message; }
+    }
+    RenderFragment Column(string label, string value, Action<string> assign) => @<label>@label<select value="@value" @onchange="e => { assign(e.Value?.ToString() ?? string.Empty); Invalidate(); }"><option value="">Choose column</option>@foreach (var header in headers) { <option value="@header">@header</option> }</select></label>;
+    void Preview()
+    {
+        Invalidate();
+        if (!confirmed) return;
+        try { preview = ProjectionImport.Build(rows, Store.Snapshot().Players, nameColumn, teamColumn, positionColumn, pointsColumn); }
+        catch (Exception ex) { error = ex.Message; }
+    }
+    async Task Save()
+    {
+        if (preview is null || !confirmed || saving) return;
+        saving = true; error = "";
+        try { await ProjectionImport.Save(Store, preview, season, week, ppr); message = $"Saved projections for {season}, week {week}, {Rules.ScoringName(ppr)}. Create a new competition to use them."; preview = null; }
+        catch (Exception ex) { error = ex.Message; }
+        finally { saving = false; }
+    }
+}

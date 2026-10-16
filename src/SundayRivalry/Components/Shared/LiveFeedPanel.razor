@@ -1,0 +1,32 @@
+@inject TimeProvider Clock
+@inject Tank01Live Live
+@inject GameService Store
+<section class="panel settings-panel live-feed-panel">
+    <div class="section-heading"><h2>Game-day updates</h2><span class="pill">TANK01 · FREE PLAN</span></div>
+    <p>@State.LiveStatus</p>
+    <div class="data-stats"><div><strong>@usage.Used / @usage.Limit</strong><small>requests in the last 31 days</small></div><div><strong>@usage.Today / @Tank01Ledger.DailyLimit</strong><small>requests today (UTC)</small></div></div>
+    <p class="muted">Updates run at most once every 30 minutes per rostered game, from scheduled kickoff through six hours afterward, stopping when Tank01 reports the game final. Practice rooms never use API requests. Both phones share the same fetch.</p>
+    <p class="muted">Requests are counted before sending, including failures. The 900-request rolling cap and 100-request daily cap survive restarts. Refreshing a page does not fetch box scores. Keep this RapidAPI subscription dedicated to this app; requests made elsewhere are outside its local counter.</p>
+    @if (usage.BlockedUntil > Clock.GetUtcNow()) { <p class="projection-error">@usage.Reason</p> }
+    @if (!Live.Configured)
+    {
+        <div class="note"><strong>No API key configured</strong><p>Subscribe to Tank01's free Basic NFL plan on RapidAPI. On your desktop, run <strong>Configure-Tank01.cmd</strong> from the app folder, enter the key at its private prompt, then restart Sunday Rivalry. No calls are made until a key is configured.</p></div>
+    }
+    else
+    {
+        <button class="button secondary" @onclick="Toggle">@(State.LivePollingPaused ? "Resume game-day updates" : "Pause game-day updates")</button>
+    }
+    <p class="muted">Live totals are provisional. Incomplete stat categories are marked partial; missing values are not confirmed zero. Historical imports reconcile scores after games. A real Tank01 response is needed to validate the provider's full scoring coverage.</p>
+    @foreach (var score in State.LiveScores.OrderByDescending(s => s.UpdatedAt).Take(8))
+    {
+        var game = State.Games.FirstOrDefault(g => g.Id == score.GameId);
+        <details class="projection-issues"><summary>@(game is null ? score.GameId : $"{game.Away} at {game.Home}") · @(score.Final ? "Game ended" : "Provisional") · Updated @Eastern(score.UpdatedAt).ToString("MMM d, h:mm tt") ET</summary>@foreach (var issue in score.Issues.Distinct()) { <p>@issue</p> }</details>
+    }
+</section>
+@code {
+    [Parameter, EditorRequired] public AppState State { get; set; } = new();
+    Tank01Usage usage = new(0, Tank01Ledger.MonthlyLimit, 0, null, "");
+    protected override void OnParametersSet() => usage = Live.Usage;
+    Task Toggle() => Store.Mutate(s => s.LivePollingPaused = !s.LivePollingPaused);
+    static DateTimeOffset Eastern(DateTimeOffset value) => TimeZoneInfo.ConvertTime(value, TimeZoneInfo.FindSystemTimeZoneById("America/New_York"));
+}

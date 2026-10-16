@@ -1,0 +1,48 @@
+﻿@if (!Rules.CanViewRoster(C, Viewer, Owner))
+{
+    <section class="panel roster roster-private" data-owner="@Owner"><div class="roster-heading"><div class="owner-avatar owner-@Owner">@C.Names[Owner][0]</div><div><h3>@C.Names[Owner]</h3><small>PRIVATE UNTIL KICKOFF</small></div></div><div class="empty compact"><h3>A little mystery. A little strategy.</h3><p>This lineup, budget, and points will be revealed when rosters lock at the first included kickoff.</p></div></section>
+}
+else
+{
+<section class="panel roster @(Active ? "roster-active" : "")" data-owner="@Owner"><div class="roster-heading"><div class="owner-avatar owner-@Owner">@C.Names[Owner][0]</div><div><h3>@C.Names[Owner]</h3><small>@(Active ? "ON THE CLOCK" : $"{C.Picks.Count(p => p.Owner == Owner)} OF 9 POSITIONS")</small></div><span class="roster-total">@(Results ? GameService.Total(State, C, Owner, false).ToString("0.00") : GameService.Total(State, C, Owner, true).ToString("0.0"))<small>@(Results ? "points" : "est. pts")</small></span></div>
+@if (C.Format == "Salary")
+{
+    <div class="budget"><span><strong>@GameService.CreditsLeft(C, Owner)</strong> credits left</span><span>@GameService.Spent(C, Owner) / @C.Budget</span><progress max="@C.Budget" value="@GameService.Spent(C, Owner)"></progress>
+        @if (!C.Locked && !Results)
+        {
+            <span class="budget-average">@if (GameService.AverageCreditsLeft(C, Owner) is { } average) { <span>Avg. per open position<small>@GameService.OpenPositions(C, Owner) positions left</small></span><strong>@average.ToString("0.00")<small>credits</small></strong> } else { <span>All positions filled</span><strong>Lineup set</strong> }</span>
+        }
+    </div>
+}
+<div class="roster-slots">@foreach (var slot in Rules.Slots)
+{
+    var pick = C.Picks.FirstOrDefault(p => p.Owner == Owner && p.Slot == slot);
+    var candidate = pick is null ? null : C.Pool.First(p => p.Player.Id == pick.PlayerId);
+    <div class="roster-slot @(candidate is null ? "slot-empty" : "")"><span class="slot-tag">@slot</span>@if (candidate is null) { <span class="empty-slot">@(C.Locked ? "Unfilled · 0 points" : "Waiting for your pick")</span> } else { <div class="roster-player"><div class="roster-name"><strong>@candidate.Player.Name</strong><InjuryBadge Player="candidate.Player" State="State" /></div><small>@candidate.Player.Team · @candidate.Opponent</small></div>@if (Results) { var actual = GameService.Actual(State, C, candidate.Player.Id); <span class="roster-points">@(actual is null ? "—" : actual.Points(C.Ppr).ToString("0.00"))<small>@(actual is null ? "pending" : actual.IsLive ? actual.CoverageIssues.Count > 0 ? "partial" : "live" : "points")</small></span> } else { <span class="roster-points">@GameService.EstimatedPoints(State, C, candidate).ToString("0.0")</span> }@if (CanEdit) { <button class="remove-player" aria-label="Remove @candidate.Player.Name" @onclick="() => Removed.InvokeAsync(candidate.Player.Id)">×</button> } }</div>
+    @if (Results && candidate is not null)
+    {
+        var stats = GameService.Actual(State, C, candidate.Player.Id);
+        @if (stats is not null) { <details class="stat-details"><summary>Scoring breakdown</summary>@if (stats.IsLive) { <p class="live-stat-note">Tank01 · Updated @stats.UpdatedAt?.ToUniversalTime().ToString("MMM d, HH:mm") UTC. Provisional total.</p>@if (stats.CoverageIssues.Count > 0) { <p class="live-stat-note">Partial score: these categories are not confirmed zero:</p><ul class="live-coverage">@foreach (var issue in stats.CoverageIssues.Distinct()) { <li>@issue</li> }</ul> } }<div>@foreach (var line in Breakdown(stats)) { <span>@line.Label<strong>@line.Points.ToString("0.##")</strong></span> }</div></details> }
+    }
+}</div>
+@if (C.Locked && C.Picks.Count(p => p.Owner == Owner) < 9) { <p class="incomplete">Incomplete roster · unfilled positions score zero.</p> }
+</section>
+}
+@code {
+    [Parameter, EditorRequired] public Competition C { get; set; } = new();
+    [Parameter, EditorRequired] public AppState State { get; set; } = new();
+    [Parameter] public int Owner { get; set; }
+    [Parameter] public int? Viewer { get; set; }
+    [Parameter] public bool Active { get; set; }
+    [Parameter] public bool CanEdit { get; set; }
+    [Parameter] public bool Results { get; set; }
+    [Parameter] public EventCallback<string> Removed { get; set; }
+    IEnumerable<(string Label, double Points)> Breakdown(StatLine s)
+    {
+        if (s.DidNotRecordStats) return [("No stat line in the completed game's published feeds", 0)];
+        if (s.Defense) return [("Sacks", s.Sacks), ("Takeaways", s.Takeaways * 2), ("D/ST touchdowns", s.DefenseTd * 6), ("Safeties", s.Safeties * 2), ("Blocked kicks", s.Blocks * 2), ($"{s.PointsAllowed} points allowed", StatLine.DefensePoints(s.PointsAllowed))];
+        return new (string, double)[] { ($"{s.PassYards:0} passing yards", s.PassYards * .04), ($"{s.PassTd:0} passing TD", s.PassTd * 4), ("Interceptions", -s.Interceptions * 2), ($"{s.RushYards:0} rushing yards", s.RushYards * .1), ("Rushing TD", s.RushTd * 6), ($"{s.Receptions:0} receptions", s.Receptions * C.Ppr), ($"{s.RecYards:0} receiving yards", s.RecYards * .1), ("Receiving TD", s.RecTd * 6), ("Fumbles lost", -s.FumblesLost * 2), ("Two-point conversions", s.TwoPoint * 2), ("Return TD", s.ReturnTd * 6), ("Extra points", s.ExtraPoints), ("Field goals under 40", s.FgShort * 3), ("Field goals 40–49", s.Fg40 * 4), ("Field goals 50+", s.Fg50 * 5) }.Where(x => x.Item2 != 0);
+    }
+}
+
+

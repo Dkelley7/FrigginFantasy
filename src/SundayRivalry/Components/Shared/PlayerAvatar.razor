@@ -1,0 +1,15 @@
+<span class="avatar pos-@Player.Position.Replace("/", "")">
+    @if (!string.IsNullOrEmpty(Player.Photo) && ShowPhoto)
+    {
+        <img src="@Player.Photo" alt="" loading="lazy" referrerpolicy="no-referrer" @onerror="() => ShowPhoto = false" />
+    }
+    else
+    {
+        <span>@(Player.Position == "D/ST" ? Player.Team : Initials)</span>
+    }
+</span>
+@code {
+    [Parameter, EditorRequired] public Player Player { get; set; } = new();
+    bool ShowPhoto = true;
+    string Initials => string.Concat(Player.Name.Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(2).Select(x => x[0]));
+}

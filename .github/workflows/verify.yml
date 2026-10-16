@@ -1,0 +1,23 @@
+name: Verify Sunday Rivalry
+on: [push, pull_request, workflow_dispatch]
+jobs:
+  verification:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Run isolated simulations and two-browser drafts
+        shell: powershell
+        run: ./scripts/check.ps1
+      - name: Keep reports and browser failure evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: verification
+          path: |
+            artifacts/verification/**
+            artifacts/test-runs/**/*.png
+            artifacts/test-runs/**/failure-*.txt

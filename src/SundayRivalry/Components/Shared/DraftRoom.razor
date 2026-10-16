@@ -1,0 +1,105 @@
+﻿@inject GameService Store
+@implements IDisposable
+<div class="room-breadcrumb"><button class="text-button" @onclick="Back">← Your competitions</button><span>@(C.Demo ? "PRACTICE ROOM · FICTIONAL PLAYERS" : $"{C.Season} SEASON / WEEK {C.Week}")</span></div>
+<div class="page-heading"><div><div class="eyebrow">@Rules.ScoringName(C.Ppr).ToUpper() · @C.Games.Count GAMES · @(C.Format == "Snake" ? "SNAKE DRAFT" : "SALARY CAP")</div><h1>@C.Title<span class="orange">.</span></h1><p>@string.Join(" + ", C.Games.Select(g => g.Day).Distinct()) · Locks @Eastern(C.LockAt).ToString("ddd, MMM d · h:mm tt") ET</p></div><span class="status-badge"><i></i>@Status</span></div>
+@if (C.Demo) { <div class="banner practice">Practice makes a rivalry. Players, matchups, and estimates in this room are fictional. Practice never counts toward your record.</div> }
+@if (HasPrivateOpponent) { <div class="banner practice">Build independently. Shared players are allowed. Your opponent's lineup, budget, and pick history stay private until the first included kickoff.</div> }
+@if (!C.Started && !C.Locked)
+{
+    <section class="panel lobby"><div><div class="eyebrow">TWO PLAYERS. ONE SHOWDOWN.</div><h2>Meet in the draft room.</h2><p>Both players mark ready to open the player pool.</p></div><div class="ready-actions">@for (int o = 0; o < 2; o++) { var owner = o; <button class="button @(C.Ready[o] ? "ready" : "secondary")" disabled="@(!MayAct(o) || busy)" @onclick="() => ForOwner(owner, () => Store.Ready(C.Id, owner))">@(C.Ready[o] ? "✓ " : "○ ")@C.Names[o] · @(C.Ready[o] ? "Ready" : "I'm ready")</button> }</div></section>
+}
+<div class="room-toolbar"><div class="segmented"><button class="@(view == "draft" ? "active" : "")" @onclick='() => view = "draft"'>Draft room</button><button class="@(view == "results" ? "active" : "")" @onclick='() => view = "results"'>Matchup & points</button><button class="@(view == "log" ? "active" : "")" @onclick='() => view = "log"'>Pick history</button></div>@if (C.Format == "Salary" && view == "draft" && !C.Locked) { <label class="acting-label">Building for <select @bind="actor" disabled="@(SignedInOwner.HasValue)">@for (int o = 0; o < 2; o++) { <option value="@o">@C.Names[o]</option> }</select></label> }</div>
+@if (view == "draft")
+{
+    <div class="draft-grid"><section class="panel player-panel"><div class="section-heading"><div><h2>The player pool</h2><p class="muted">@(C.Format == "Snake" ? $"Round {Math.Min(9, C.Picks.Count / 2 + 1)} of 9 · Pick {Math.Min(18, C.Picks.Count + 1)} of 18" : "A little strategy goes a long way.")</p></div><span class="pill">@Available.Count available</span></div>
+        <div class="pool-controls"><div class="search-box"><span>⌕</span><input aria-label="Search players" placeholder="Find your next difference-maker…" @bind="search" @bind:event="oninput" /></div><div class="position-tabs">@foreach (var p in new[] { "All", "QB", "RB", "WR", "TE", "K", "D/ST" }) { <button class="@(position == p ? "active" : "")" @onclick="() => position = p">@p</button> }</div></div>
+        <div class="turn-banner"><span class="pulse"></span><div><strong>@TurnLabel</strong><small>@(C.Locked ? "Both rosters are locked for this competition." : C.Format == "Snake" ? "Choose a player and an open position to make your pick." : "Shared players allowed. Reserve enough credits for your starting nine.")</small></div></div>
+        <div class="table-scroll"><table class="player-table"><thead><tr><th>PLAYER</th><th>MATCHUP</th><th><button class="sort-button" @onclick="() => descending = !descending">EST. PTS @(descending ? "↓" : "↑")</button></th>@if (C.Format == "Salary") { <th>SALARY</th> }<th><span class="sr-only">Select</span></th></tr></thead><tbody>
+        @foreach (var candidate in Filtered.Take(80))
+        {
+            var p = candidate.Player; var owner = ActingOwner; var slot = Rules.OpenSlot(C, owner, p.Position);
+            var overBudget = C.Format == "Salary" && !GameService.CanAfford(C, owner, candidate);
+            <tr @key="p.Id" class="@(overBudget ? "player-unaffordable" : null)" aria-disabled="@(overBudget ? "true" : null)"><td><div class="player-cell"><PlayerAvatar Player="p" /><div><strong>@p.Name</strong><InjuryBadge Player="p" State="State" /><small><span class="position-tag">@p.Position</span> @p.Team </small></div></div></td><td><strong class="opponent">@candidate.Opponent</strong><small>@Eastern(candidate.Kickoff).ToString("ddd h:mm tt") ET</small></td><td><strong class="projection">@GameService.EstimatedPoints(State, C, candidate).ToString("0.0")</strong><small>@GameService.EstimateLabel(State, C, candidate)</small></td>@if (C.Format == "Salary") { <td><strong>@candidate.Salary</strong><small>@(overBudget ? "Over budget" : "credits")</small></td> }<td><button class="pick-button" title="@(overBudget ? $"{p.Name} costs {candidate.Salary} credits; you have {GameService.CreditsLeft(C, owner)} left." : $"Select {p.Name}")" aria-label="Select @p.Name" disabled="@(overBudget || busy || C.Locked || !C.Started || slot is null || !MayAct(owner) || (C.Format == "Snake" && C.DraftComplete))" @onclick="() => Select(candidate)">+</button></td></tr>
+        }
+        </tbody></table></div>
+        @if (Filtered.Count == 0) { <div class="empty"><h3>No players here</h3><p>Try another position or search.</p></div> }
+        @if (State.Espn.InjuriesUpdatedAt is { } checkedAt) { <p class="injury-feed-note">Injuries: ESPN · checked @checkedAt.ToUniversalTime().ToString("MMM d, HH:mm") UTC · status can change before kickoff</p> }<div class="table-foot">@Filtered.Count matching players @(Filtered.Count > 80 ? "· Showing the top 80. Search to find more." : "")<span>Estimates, not guarantees.</span></div>
+    </section><aside class="rosters-column">@for (int o = 0; o < 2; o++) { var owner = o; <Roster State="State" C="C" Owner="owner" Viewer="Viewer" Active="@(C.Started && !C.Locked && ActingOwner == owner)" CanEdit="@(C.Format == "Salary" && MayAct(owner) && !C.Locked)" Removed="p => ForOwner(owner, () => Store.Remove(C.Id, owner, p, C.Revision))" /> }</aside></div>
+    @if (C.Format == "Snake" && C.Picks.Count > 0 && !C.Locked)
+    {
+        <div class="undo-bar"><span>@(C.UndoRequestedBy.HasValue ? $"{C.Names[C.UndoRequestedBy.Value]} requested undo of the last pick." : "Changed your mind? Both players must agree to undo the last pick.")</span>@for (int o = 0; o < 2; o++) { var owner = o; <button class="text-button" disabled="@(!MayAct(o) || busy)" @onclick="() => ForOwner(owner, () => Store.Undo(C.Id, owner, C.Revision))">@C.Names[o]: @(C.UndoRequestedBy == o ? "Cancel request" : C.UndoRequestedBy.HasValue ? "Approve undo" : "Request undo")</button> }</div>
+    }
+}
+else if (view == "results")
+{
+    <div class="matchup-score panel"><div><span class="eyebrow">@C.Names[0].ToUpper()</span><strong>@Score(0, false)</strong><small>@Estimate(0)</small></div><span class="versus">VS<small>@(GameService.Final(State, C) ? "FINAL" : "PROVISIONAL")</small></span><div><span class="eyebrow">@C.Names[1].ToUpper()</span><strong>@Score(1, false)</strong><small>@Estimate(1)</small></div></div>
+    <p class="data-disclaimer">@(C.Demo ? "Practice mode does not generate real scores." : "Scores use imported statistics and may lag games. Missing statistics remain pending, not final zeroes. D/ST points allowed uses the opponent's full scoreboard total.")</p>
+    @if (State.LiveScores.Any(s => C.Games.Any(g => g.Id == s.GameId))) { <p class="data-disclaimer live-status" role="status">@State.LiveStatus Live totals are provisional and may be partial; expand scoring breakdowns for coverage details. Page refreshes do not request new box scores.</p> }
+    <div class="results-grid">@for (int o = 0; o < 2; o++) { <Roster State="State" C="C" Owner="o" Viewer="Viewer" Results="true" /> }</div>
+}
+else
+{
+    <section class="panel history-panel"><div class="section-heading"><h2>Every pick tells a story.</h2><span class="pill">@VisiblePicks.Count selections</span></div>@if (VisiblePicks.Count == 0) { <div class="empty"><h3>Your story starts with pick one.</h3></div> }@foreach (var entry in VisiblePicks.Select((p, i) => (p, i))) { var p = C.Pool.First(x => x.Player.Id == entry.p.PlayerId); <div class="log-row"><span class="pick-number">@((entry.i + 1).ToString("00"))</span><PlayerAvatar Player="p.Player" /><div><strong>@p.Player.Name</strong><small>@C.Names[entry.p.Owner] · @entry.p.Slot</small></div><span class="muted">@Eastern(entry.p.At).ToString("h:mm tt") ET</span></div> }</section>
+}
+@if (selected is not null)
+{
+    <div class="modal-backdrop" @onkeydown="HandleKey">
+        <section class="modal" role="dialog" aria-modal="true" aria-labelledby="pick-title">
+            <button class="modal-close" aria-label="Close selection" @onclick="() => selected = null">×</button>
+            <div class="eyebrow">PICKING FOR @C.Names[selectedOwner].ToUpper()</div>
+            <h2 id="pick-title">@selected.Player.Name <InjuryBadge Player="selected.Player" State="State" /></h2>
+            <p>@selected.Player.Position · @selected.Player.Team · @selected.Opponent</p>
+            <div class="pick-detail"><strong>@GameService.EstimatedPoints(State, C, selected).ToString("0.0")<small>@(GameService.IsUnavailable(State, C, selected.Player.Id) ? GameService.EstimateLabel(State, C, selected) : "estimated points")</small></strong>@if (C.Format == "Salary") { <strong>@selected.Salary<small>fantasy credits</small></strong> }</div>
+            @if (!C.Demo)
+            {
+                var recent = State.Stats.Where(s => s.PlayerId == selected.Player.Id && (s.Season < C.Season || (s.Season == C.Season && s.Week < C.Week))).OrderByDescending(s => s.Season).ThenByDescending(s => s.Week).Take(5).ToList();
+                <div class="recent-stats"><strong>Recent appearances</strong>@if (recent.Count == 0) { <p>No prior appearances in the imported data. Estimate uses a position baseline.</p> }@foreach (var line in recent) { <div><span>@line.Season · W@line.Week</span><small>@StatSummary(line, selected.Player.Position)</small><strong>@line.Points(C.Ppr).ToString("0.0") pts</strong></div> }</div>
+            }
+            <label>Roster position<select @ref="slotSelect" @bind="selectedSlot">@foreach (var slot in Rules.Slots.Where(s => Rules.Fits(s, selected.Player.Position) && !C.Picks.Any(p => p.Owner == selectedOwner && p.Slot == s))) { <option>@slot</option> }</select></label>
+            <button class="button primary full" disabled="@(busy || C.Locked || string.IsNullOrEmpty(selectedSlot))" @onclick="Confirm">@(busy ? "Saving…" : C.Format == "Snake" ? "Make the pick →" : "Add to lineup →")</button>
+            <small class="muted">@(GameService.IsUnavailable(State, C, selected.Player.Id) ? "ESPN lists this player as unavailable. Estimated points are zero; the saved salary is unchanged." : selected.ProjectionSource.Length > 0 ? $"Pregame projection from {selected.ProjectionSource}, imported {selected.ProjectionImportedAt:MMM d, yyyy}." : selected.SampleSize > 0 ? $"Estimate uses {selected.SampleSize} previous appearances under this scoring preset." : "Limited history: estimate uses a position baseline.")</small>
+        </section>
+    </div>
+}
+@if (error != "") { <div role="alert" class="toast error">@error<button aria-label="Dismiss error" @onclick='() => error = ""'>×</button></div> }
+@code {
+    [Parameter, EditorRequired] public Competition C { get; set; } = new();
+    [Parameter, EditorRequired] public AppState State { get; set; } = new();
+    [Parameter] public int? SignedInOwner { get; set; }
+    [Parameter] public EventCallback Back { get; set; }
+    string view = "draft", search = "", position = "All", error = "", selectedSlot = "";
+    int actor, selectedOwner, selectedRevision; bool descending = true, busy, focusSelection; Candidate? selected;
+    ElementReference slotSelect;
+    PeriodicTimer? timer; CancellationTokenSource cancel = new();
+    int Viewer => SignedInOwner ?? actor;
+    bool HasPrivateOpponent => !Rules.CanViewRoster(C, Viewer, 1 - Viewer);
+    List<Pick> VisiblePicks => C.Picks.Where(p => Rules.CanViewRoster(C, Viewer, p.Owner)).ToList();
+    string Score(int owner, bool projected) => Rules.CanViewRoster(C, Viewer, owner) ? GameService.Total(State, C, owner, projected).ToString(projected ? "0.0" : "0.00") : "Hidden";
+    string Estimate(int owner) => Rules.CanViewRoster(C, Viewer, owner) ? $"{Score(owner, true)} estimated" : "Reveals at kickoff";
+    int ActingOwner => C.Format == "Snake" ? C.Turn : SignedInOwner ?? actor;
+    bool MayAct(int owner) => !SignedInOwner.HasValue || SignedInOwner == owner;
+    string Status => C.Locked ? "Rosters locked" : C.DraftComplete ? "Lineups set" : C.Started ? "Draft in progress" : "Waiting for players";
+    string TurnLabel => C.Format == "Salary" && !C.Locked
+        ? !C.Started ? "Waiting for both players to be ready" : C.Picks.Count(p => p.Owner == ActingOwner) == 9 ? "Your lineup is set. You can still make changes until kickoff." : $"{C.Names[ActingOwner]}, build your lineup at your own pace."
+        : SnakeTurnLabel;
+    string SnakeTurnLabel => C.Locked ? "Kickoff. Let the games begin." : C.DraftComplete ? "Your lineups are set." : !C.Started ? "Waiting for both players to be ready" : $"{C.Names[ActingOwner]}, you're up.";
+    List<Candidate> Available => C.Pool.Where(x => !C.Picks.Any(p => p.PlayerId == x.Player.Id && (C.Format == "Snake" || p.Owner == ActingOwner))).ToList();
+    List<Candidate> Filtered => (descending ? Available.OrderByDescending(x => GameService.EstimatedPoints(State, C, x)) : Available.OrderBy(x => GameService.EstimatedPoints(State, C, x))).Where(x => (position == "All" || x.Player.Position == position) && ($"{x.Player.Name} {x.Player.Team}".Contains(search, StringComparison.OrdinalIgnoreCase))).ToList();
+    protected override void OnInitialized() { actor = SignedInOwner ?? 0; timer = new(TimeSpan.FromSeconds(15)); _ = Tick(); }
+    async Task Tick() { try { while (await timer!.WaitForNextTickAsync(cancel.Token)) await InvokeAsync(StateHasChanged); } catch (OperationCanceledException) { } }
+    void Select(Candidate p) { selected = p; selectedOwner = ActingOwner; selectedRevision = C.Revision; selectedSlot = Rules.OpenSlot(C, selectedOwner, p.Player.Position) ?? ""; focusSelection = true; }
+    protected override async Task OnAfterRenderAsync(bool firstRender) { if (focusSelection && selected is not null) { focusSelection = false; await slotSelect.FocusAsync(); } }
+    void HandleKey(KeyboardEventArgs e) { if (e.Key == "Escape") selected = null; }
+    static string StatSummary(StatLine s, string pos) => pos switch { "QB" => $"{s.PassYards:0} pass yd · {s.PassTd:0} TD", "K" => $"{s.FgShort + s.Fg40 + s.Fg50:0} FG · {s.ExtraPoints:0} XP", "D/ST" => $"{s.Sacks:0} sacks · {s.PointsAllowed} PA", _ => $"{s.RushYards + s.RecYards:0} yd · {s.Receptions:0} rec · {s.RushTd + s.RecTd:0} TD" };
+    async Task Confirm() { if (selected is null || !MayAct(selectedOwner)) return; var p = selected; await Run(() => Store.Pick(C.Id, selectedOwner, p.Player.Id, selectedSlot, selectedRevision)); selected = null; }
+    async Task Run(Func<Task> action) { busy = true; error = ""; try { await action(); } catch (Exception ex) { error = ex.Message; } finally { busy = false; } }
+    Task ForOwner(int owner, Func<Task> action)
+    {
+        if (!MayAct(owner)) { error = "You can only act for your signed-in participant."; return Task.CompletedTask; }
+        return Run(action);
+    }
+    static DateTime Eastern(DateTimeOffset x) => TimeZoneInfo.ConvertTime(x, TimeZoneInfo.FindSystemTimeZoneById("America/New_York")).DateTime;
+    public void Dispose() { cancel.Cancel(); timer?.Dispose(); cancel.Dispose(); }
+}
+
+
